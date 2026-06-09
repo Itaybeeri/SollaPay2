@@ -1,9 +1,10 @@
 import React, { useState } from "react";
+import { Scale, FilePlus2, Bell, Coins } from "lucide-react";
 import { api } from "./api.js";
 import { usePolling } from "./usePolling.js";
+import { Card, Field, Button, RefChip, fmtAmount } from "./ui.js";
 
 export function LawyerPanel() {
-  const deals = usePolling(api.getDeals) ?? [];
   const requests = usePolling(api.getPaymentRequests) ?? [];
   const notifications = usePolling(api.getNotifications) ?? [];
 
@@ -18,31 +19,59 @@ export function LawyerPanel() {
   }
 
   return (
-    <section className="flex-1 p-4 bg-emerald-50 overflow-auto">
-      <h2 className="font-bold text-emerald-800 mb-2">Lawyer</h2>
-
-      <div className="space-y-2 bg-white p-3 rounded shadow-sm">
-        <input className="border p-1 w-full" value={name} onChange={(e) => setName(e.target.value)} placeholder="Deal name" />
-        <input className="border p-1 w-full" value={buyerName} onChange={(e) => setBuyerName(e.target.value)} placeholder="Buyer" />
-        <input className="border p-1 w-full" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Reference" />
-        <input className="border p-1 w-full" type="number" value={amount} onChange={(e) => setAmount(+e.target.value)} placeholder="Amount" />
-        <button className="bg-emerald-600 text-white px-3 py-1 rounded w-full" onClick={createRequest}>
-          Create deal + payment request
-        </button>
+    <section className="flex w-80 flex-shrink-0 flex-col gap-3 overflow-auto">
+      <div className="flex items-center gap-2 px-1">
+        <Scale size={16} className="text-emerald-600" />
+        <h2 className="text-sm font-semibold text-slate-700">Lawyer</h2>
       </div>
 
-      <h3 className="font-semibold mt-4">Payment requests ({requests.length})</h3>
-      <ul className="text-sm">
-        {requests.map((r) => <li key={r.id}>ref <b>{r.reference}</b> · {r.expectedAmount} {r.currency}</li>)}
-      </ul>
+      <Card className="space-y-3">
+        <p className="text-sm font-semibold text-slate-700">New payment request</p>
+        <Field label="Deal name" value={name} onChange={(e) => setName(e.target.value)} />
+        <Field label="Buyer" value={buyerName} onChange={(e) => setBuyerName(e.target.value)} />
+        <Field label="Reference" value={reference} onChange={(e) => setReference(e.target.value)} />
+        <Field label="Expected amount (ILS)" type="number" value={amount} onChange={(e) => setAmount(+e.target.value)} />
+        <Button variant="emerald" onClick={createRequest}>
+          <span className="inline-flex items-center justify-center gap-2"><FilePlus2 size={15} /> Create request</span>
+        </Button>
+      </Card>
 
-      <h3 className="font-semibold mt-4">Notifications ({notifications.length})</h3>
-      <ul className="text-sm space-y-1">
-        {notifications.map((n) => (
-          <li key={n.id} className="bg-emerald-100 p-2 rounded">💰 {n.message}</li>
-        ))}
-      </ul>
-      <p className="text-xs text-gray-400 mt-2">Deals: {deals.length}</p>
+      <Card>
+        <p className="mb-2 text-sm font-semibold text-slate-700">Payment requests ({requests.length})</p>
+        {requests.length === 0 ? (
+          <p className="text-xs text-slate-400">None yet.</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {requests.map((r) => (
+              <li key={r.id} className="flex items-center justify-between text-sm">
+                <RefChip value={r.reference} />
+                <span className="text-slate-600">{fmtAmount(r.expectedAmount)} {r.currency}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <Card>
+        <p className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-700">
+          <Bell size={14} /> Notifications ({notifications.length})
+        </p>
+        {notifications.length === 0 ? (
+          <p className="text-xs text-slate-400">No funds received yet.</p>
+        ) : (
+          <ul className="space-y-2">
+            {notifications.map((n) => (
+              <li key={n.id} className="flex items-start gap-2 rounded-lg bg-emerald-50 p-2.5 ring-1 ring-emerald-100">
+                <Coins size={16} className="mt-0.5 flex-shrink-0 text-emerald-600" />
+                <div>
+                  <p className="text-sm text-emerald-900">{n.message}</p>
+                  <p className="text-[11px] text-emerald-600/70">{new Date(n.at).toLocaleTimeString()}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
     </section>
   );
 }
