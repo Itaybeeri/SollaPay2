@@ -1,16 +1,10 @@
 import React, { useState } from "react";
+import { Landmark, ChevronDown, ChevronRight, Inbox } from "lucide-react";
 import { api, type Transaction } from "./api.js";
 import { usePolling } from "./usePolling.js";
+import { StatusBadge, RefChip, fmtAmount, type Status } from "./ui.js";
 
-const statusColor: Record<Transaction["status"], string> = {
-  Pending: "bg-slate-200 text-slate-700",
-  Matched: "bg-emerald-100 text-emerald-800",
-  Unmatched: "bg-amber-100 text-amber-800",
-  Duplicate: "bg-rose-100 text-rose-800",
-};
-
-// "Unmatched" carries the reason(s); show them on the badge so the two cases
-// (reference vs. amount, or both) are distinguishable at a glance.
+// "Unmatched" shows its reason(s) so the two cases are distinguishable at a glance.
 function statusLabel(tx: Transaction): string {
   if (tx.status === "Unmatched" && tx.mismatchReasons.length > 0) {
     return `Unmatched · ${tx.mismatchReasons.join(" + ")}`;
@@ -18,29 +12,71 @@ function statusLabel(tx: Transaction): string {
   return tx.status;
 }
 
+function PayloadGrid({ bankEvent }: { bankEvent: NonNullable<Transaction["bankEvent"]> }) {
+  const rows: [string, string][] = [
+    ["Transaction id", bankEvent.transactionId],
+    ["Amount", `${fmtAmount(bankEvent.amount)} ${bankEvent.currency}`],
+    ["Reference", bankEvent.reference],
+    ["Sender", bankEvent.senderName],
+    ["Occurred at", new Date(bankEvent.occurredAt).toLocaleString()],
+  ];
+  return (
+    <dl className="grid grid-cols-[120px_1fr] gap-x-3 gap-y-1 text-xs">
+      {rows.map(([k, v]) => (
+        <React.Fragment key={k}>
+          <dt className="text-slate-400">{k}</dt>
+          <dd className="text-slate-700">{v}</dd>
+        </React.Fragment>
+      ))}
+    </dl>
+  );
+}
+
 function Row({ tx }: { tx: Transaction }) {
   const [open, setOpen] = useState(false);
   const headline = tx.bankEvent
-    ? `${tx.bankEvent.amount} ${tx.bankEvent.currency}`
-    : `${tx.expectedAmount} (expected)`;
+    ? `${fmtAmount(tx.bankEvent.amount)} ${tx.bankEvent.currency}`
+    : `${fmtAmount(tx.expectedAmount ?? 0)} ILS expected`;
+  const Chevron = open ? ChevronDown : ChevronRight;
+
   return (
-    <li className="bg-white rounded shadow-sm">
-      <button className="w-full text-left p-2 flex justify-between items-center gap-2" onClick={() => setOpen(!open)}>
-        <span>{headline} · ref {tx.reference}</span>
-        <span className={`text-xs px-2 py-0.5 rounded whitespace-nowrap ${statusColor[tx.status]}`}>{statusLabel(tx)}</span>
+    <li className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition hover:shadow">
+      <button className="flex w-full items-center gap-3 p-3 text-left" onClick={() => setOpen(!open)}>
+        <Chevron size={16} className="flex-shrink-0 text-slate-400" />
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold text-slate-800">{headline}</p>
+          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-400">
+            <RefChip value={tx.reference} />
+            {tx.bankEvent && <span>from {tx.bankEvent.senderName}</span>}
+          </p>
+        </div>
+        <StatusBadge status={tx.status as Status} label={statusLabel(tx)} />
       </button>
+
       {open && (
-        <div className="px-3 pb-3 text-xs space-y-2">
-          <p className="italic text-gray-600">{tx.matchNote}</p>
+        <div className="space-y-3 border-t border-slate-100 bg-slate-50/60 px-4 py-3">
+          <p className="text-xs italic text-slate-500">{tx.matchNote}</p>
+
           <div>
-            <p className="font-semibold">Bank payload</p>
+            <p className="mb-1 text-xs font-semibold text-slate-600">Bank payload</p>
             {tx.bankEvent
-              ? <pre className="bg-gray-50 p-2 rounded overflow-auto">{JSON.stringify(tx.bankEvent, null, 2)}</pre>
-              : <p className="text-gray-500">No transfer received yet — awaiting the bank.</p>}
+              ? <PayloadGrid bankEvent={tx.bankEvent} />
+              : <p className="text-xs text-slate-400">No transfer received yet — awaiting the bank.</p>}
           </div>
+
           <div>
-            <p className="font-semibold">Audit trail</p>
-            <ul>{tx.audit.map((a) => <li key={a.id}>• {a.action} — {a.detail}</li>)}</ul>
+            <p className="mb-1 text-xs font-semibold text-slate-600">Audit trail</p>
+            <ol className="space-y-1.5">
+              {tx.audit.map((a) => (
+                <li key={a.id} className="flex gap-2 text-xs">
+                  <span className="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-slate-300" />
+                  <span>
+                    <span className="font-mono text-slate-500">{a.action}</span>
+                    <span className="text-slate-600"> — {a.detail}</span>
+                  </span>
+                </li>
+              ))}
+            </ol>
           </div>
         </div>
       )}
@@ -51,9 +87,23 @@ function Row({ tx }: { tx: Transaction }) {
 export function SollaPayPanel() {
   const transactions = usePolling(api.getTransactions) ?? [];
   return (
-    <section className="flex-[1.4] p-4 bg-slate-100 overflow-auto border-x">
-      <h2 className="font-bold text-slate-800 mb-2">SollaPay · Transactions ({transactions.length})</h2>
-      <ul className="space-y-2">{transactions.map((t) => <Row key={t.id} tx={t} />)}</ul>
+    <section className="flex flex-1 flex-col overflow-hidden">
+      <div className="mb-3 flex items-center gap-2 px-1">
+        <Landmark size={16} className="text-indigo-600" />
+        <h2 className="text-sm font-semibold text-slate-700">Transactions</h2>
+        <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs text-slate-600">{transactions.length}</span>
+      </div>
+
+      {transactions.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center text-slate-400">
+          <Inbox size={32} />
+          <p className="mt-2 text-sm">No transactions yet. Create a request or send a transfer.</p>
+        </div>
+      ) : (
+        <ul className="flex-1 space-y-2 overflow-auto pr-1">
+          {transactions.map((t) => <Row key={t.id} tx={t} />)}
+        </ul>
+      )}
     </section>
   );
 }
