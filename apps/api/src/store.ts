@@ -5,10 +5,9 @@ import type {
 // Single in-memory store. No DB — collections reset on restart.
 export const store = {
   deals: new Map<string, Deal>(),
-  paymentRequestsByReference: new Map<string, PaymentRequest>(),
+  paymentRequests: new Map<string, PaymentRequest>(), // by id (references are NOT unique)
   bankEventsByTransactionId: new Map<string, BankEvent>(), // dedup index
   transactions: new Map<string, Transaction>(),
-  pendingTransactionIdByReference: new Map<string, string>(), // reference -> pending tx id
 
   auditEntries: [] as AuditEntry[],
   notifications: [] as Notification[],

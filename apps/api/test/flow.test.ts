@@ -11,10 +11,9 @@ registerNotifications();
 
 function resetStore() {
   store.deals.clear();
-  store.paymentRequestsByReference.clear();
+  store.paymentRequests.clear();
   store.bankEventsByTransactionId.clear();
   store.transactions.clear();
-  store.pendingTransactionIdByReference.clear();
   store.auditEntries.length = 0;
   store.notifications.length = 0;
 }
@@ -81,6 +80,21 @@ describe("bank event ingest flow", () => {
     expect(store.notifications).toHaveLength(1);
     // No separate Pending row is opened.
     expect([...store.transactions.values()].filter((t) => t.status === "Pending")).toHaveLength(0);
+  });
+
+  it("multiple requests with the same reference are matched one-per-transfer (FIFO)", () => {
+    seedPaymentRequest("ABC123"); // three deals, same reference + amount
+    seedPaymentRequest("ABC123");
+    seedPaymentRequest("ABC123");
+
+    ingestBankEvent(event({ transactionId: "tx_a" })); // first transfer
+    ingestBankEvent(event({ transactionId: "tx_b" })); // second transfer
+
+    const byStatus = (s: string) =>
+      [...store.transactions.values()].filter((t) => t.status === s).length;
+    expect(byStatus("Matched")).toBe(2);   // two transfers consumed two pendings
+    expect(byStatus("Pending")).toBe(1);   // one request still waiting
+    expect(store.notifications).toHaveLength(2);
   });
 
   it("scenario 3: a repeated transactionId is recorded as Duplicate", () => {
