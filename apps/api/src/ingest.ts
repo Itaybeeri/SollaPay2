@@ -10,7 +10,8 @@ export function ingestBankEvent(bankEvent: BankEvent): Transaction {
 
   if (seen) {
     const dup: Transaction = {
-      id: newId("txn"), bankEvent, status: "Duplicate",
+      id: newId("txn"), reference: bankEvent.reference, expectedAmount: null,
+      bankEvent, status: "Duplicate", mismatchReasons: [],
       paymentRequestId: null, dealId: null,
       matchNote: `Duplicate transactionId ${bankEvent.transactionId} — ignored`,
       createdAt: now(),

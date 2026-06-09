@@ -12,7 +12,10 @@ export function registerAudit(): void {
     const e = p as BankEvent;
     record("bank.event.received", `Received ${e.amount} ${e.currency} ref ${e.reference}`, null);
   });
-  for (const evt of ["transaction.matched", "transaction.unmatched", "transaction.duplicate"]) {
+  for (const evt of [
+    "transaction.pending", "transaction.matched",
+    "transaction.unmatched", "transaction.duplicate",
+  ]) {
     eventBus.on(evt, (p) => {
       const t = p as Transaction;
       record(evt, t.matchNote, t.id);

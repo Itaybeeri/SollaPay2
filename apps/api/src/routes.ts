@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { store, newId, now } from "./store.js";
+import { eventBus } from "./eventBus.js";
 import { ingestBankEvent } from "./ingest.js";
-import type { Deal, PaymentRequest, AuditEntry } from "./types.js";
+import type { Deal, PaymentRequest, Transaction, AuditEntry } from "./types.js";
 
 // Plain functions so tests can call them directly without HTTP.
 export function createDeal(input: { name: string; buyerName: string }): Deal {
@@ -15,6 +16,19 @@ export function createPaymentRequest(input: {
 }): PaymentRequest {
   const pr: PaymentRequest = { id: newId("pr"), ...input, createdAt: now() };
   store.paymentRequestsByReference.set(pr.reference, pr);
+
+  // A new payment request shows up immediately in the transactions view as
+  // Pending — it is awaiting the matching bank transfer.
+  const tx: Transaction = {
+    id: newId("txn"), reference: pr.reference, expectedAmount: pr.expectedAmount,
+    bankEvent: null, status: "Pending", mismatchReasons: [],
+    paymentRequestId: pr.id, dealId: pr.dealId,
+    matchNote: `Awaiting payment of ${pr.expectedAmount} ${pr.currency} (ref ${pr.reference})`,
+    createdAt: now(),
+  };
+  store.transactions.set(tx.id, tx);
+  store.pendingTransactionIdByReference.set(pr.reference, tx.id);
+  eventBus.emit("transaction.pending", tx);
   return pr;
 }
 
