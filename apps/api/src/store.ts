@@ -8,6 +8,8 @@ export const store = {
   paymentRequestsByReference: new Map<string, PaymentRequest>(),
   bankEventsByTransactionId: new Map<string, BankEvent>(), // dedup index
   transactions: new Map<string, Transaction>(),
+  pendingTransactionIdByReference: new Map<string, string>(), // reference -> pending tx id
+
   auditEntries: [] as AuditEntry[],
   notifications: [] as Notification[],
 };

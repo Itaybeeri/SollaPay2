@@ -1,6 +1,14 @@
 // All shared domain types live here so the model is readable in one place.
 
-export type TransactionStatus = "Matched" | "Unmatched" | "Duplicate";
+export type TransactionStatus =
+  | "Pending"    // payment request created, awaiting the bank transfer
+  | "Matched"    // bank event reference AND amount match the request
+  | "Unmatched"  // reference and/or amount did not match (see mismatchReasons)
+  | "Duplicate"; // this transactionId was already processed
+
+// Why a bank event was not matched. Both can be present at once: a wrong
+// reference means there is no request to verify the amount against, so both fail.
+export type MismatchReason = "reference" | "amount";
 
 export interface Deal {
   id: string;
@@ -30,11 +38,14 @@ export interface BankEvent {
 
 export interface Transaction {
   id: string;
-  bankEvent: BankEvent;
+  reference: string;             // the code shared by the request and the bank event
+  expectedAmount: number | null; // from the payment request; null for orphan bank events
+  bankEvent: BankEvent | null;   // null while Pending (no transfer received yet)
   status: TransactionStatus;
+  mismatchReasons: MismatchReason[]; // populated only when status is "Unmatched"
   paymentRequestId: string | null;
   dealId: string | null;
-  matchNote: string;     // human-readable matching decision
+  matchNote: string;             // human-readable matching decision
   createdAt: string;
 }
 

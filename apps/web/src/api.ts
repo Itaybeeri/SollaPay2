@@ -1,9 +1,13 @@
 // Typed fetch helpers. Mirrors the API's domain types.
 export interface Transaction {
-  id: string; status: "Matched" | "Unmatched" | "Duplicate";
+  id: string;
+  status: "Pending" | "Matched" | "Unmatched" | "Duplicate";
+  reference: string;
+  expectedAmount: number | null;
+  mismatchReasons: ("reference" | "amount")[];
   matchNote: string; dealId: string | null; createdAt: string;
   bankEvent: { transactionId: string; amount: number; currency: string;
-    reference: string; senderName: string; occurredAt: string };
+    reference: string; senderName: string; occurredAt: string } | null;
   audit: { id: string; at: string; action: string; detail: string }[];
 }
 export interface Deal { id: string; name: string; buyerName: string }

@@ -19,9 +19,13 @@ export function BankPanel() {
     const id = nextTxId(); setLastTxId(id);
     await api.sendWebhook(payload(id, reference));
   }
-  async function sendUnmatched() {
+  async function sendWrongReference() {
     const id = nextTxId(); setLastTxId(id);
-    await api.sendWebhook(payload(id, "NO-MATCH-999"));
+    await api.sendWebhook(payload(id, "NO-MATCH-999")); // reference + amount unmatched
+  }
+  async function sendWrongAmount() {
+    const id = nextTxId(); setLastTxId(id);
+    await api.sendWebhook({ ...payload(id, reference), amount: amount + 1 }); // amount unmatched
   }
   async function sendDuplicate() {
     if (!lastTxId) return; // resend the previous id
@@ -36,8 +40,9 @@ export function BankPanel() {
         <input className="border p-1 w-full" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Reference" />
         <input className="border p-1 w-full" type="number" value={amount} onChange={(e) => setAmount(+e.target.value)} placeholder="Amount" />
         <input className="border p-1 w-full" value={senderName} onChange={(e) => setSenderName(e.target.value)} placeholder="Sender" />
-        <button className="bg-sky-600 text-white px-3 py-1 rounded w-full" onClick={sendMatched}>Send transfer (this reference)</button>
-        <button className="bg-amber-600 text-white px-3 py-1 rounded w-full" onClick={sendUnmatched}>Send with wrong reference</button>
+        <button className="bg-sky-600 text-white px-3 py-1 rounded w-full" onClick={sendMatched}>Send transfer (this reference + amount)</button>
+        <button className="bg-amber-600 text-white px-3 py-1 rounded w-full" onClick={sendWrongReference}>Send with wrong reference (ref + amount unmatched)</button>
+        <button className="bg-orange-600 text-white px-3 py-1 rounded w-full" onClick={sendWrongAmount}>Send with wrong amount (amount unmatched)</button>
         <button className="bg-rose-600 text-white px-3 py-1 rounded w-full disabled:opacity-40" disabled={!lastTxId} onClick={sendDuplicate}>
           Resend last transfer (duplicate)
         </button>

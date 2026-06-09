@@ -8,7 +8,7 @@ export function registerNotifications(): void {
     const t = p as Transaction;
     store.notifications.push({
       id: newId("ntf"), at: now(), dealId: t.dealId!,
-      message: `${t.bankEvent.amount} ${t.bankEvent.currency} received from ${t.bankEvent.senderName}`,
+      message: `${t.bankEvent!.amount} ${t.bankEvent!.currency} received from ${t.bankEvent!.senderName}`,
     });
   });
 }

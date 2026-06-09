@@ -25,21 +25,33 @@ Three side-by-side panels, each a window onto the same flow:
 
 | Panel | Role |
 |-------|------|
-| **Bank** (left) | Compose & send a bank webhook. Buttons fire the matched / wrong-reference / duplicate cases. |
-| **SollaPay** (center) | Every transaction with its status (`Matched` / `Unmatched` / `Duplicate`). Click a row to expand the raw bank payload + audit trail. |
+| **Bank** (left) | Compose & send a bank webhook. Buttons fire the matched / wrong-reference / wrong-amount / duplicate cases. |
+| **SollaPay** (center) | Every transaction with its status (`Pending` / `Matched` / `Unmatched` / `Duplicate`). A new payment request shows up here as **Pending** right away and flips to **Matched** when funds arrive. Click a row to expand the bank payload + audit trail. |
 | **Lawyer** (right) | Create a Deal + Payment Request (the reference the bank must quote) and watch the notification feed. |
 
-## Demo script (the three implemented scenarios)
+## Matching rule
 
-1. **Scenario 1 — Matched.** Lawyer panel → *Create deal + payment request* (ref `ABC123`).
-   Bank panel → *Send transfer (this reference)*. Center shows **Matched**; expand it to
-   see the payload + audit; a notification appears in the Lawyer feed.
-2. **Scenario 2 — Unmatched.** Bank panel → *Send with wrong reference*. Center shows
-   **Unmatched** ("No matching payment request"); no notification. The money is held,
-   not lost — it awaits manual resolution.
-3. **Scenario 3 — Duplicate.** Bank panel → *Resend last transfer (duplicate)*. Center
-   shows a **Duplicate** row; the event is not re-processed and no second notification
-   fires (idempotency on `transactionId`).
+A transfer is **Matched** only when **both the reference and the amount** equal the
+payment request. Otherwise it is **Unmatched**, carrying the reason(s):
+
+- **reference + amount** — no payment request exists for that reference (so the amount
+  can't be verified either).
+- **amount** — the reference matched a request, but the amount differs.
+
+## Demo script
+
+1. **Pending.** Lawyer panel → *Create deal + payment request* (ref `ABC123`, amount
+   `70000`). The center panel immediately shows a **Pending** row.
+2. **Matched.** Bank panel → *Send transfer (this reference + amount)*. The Pending row
+   flips to **Matched**; expand it for payload + audit; a notification appears in the
+   Lawyer feed.
+3. **Unmatched — amount.** Bank panel → *Send with wrong amount*. Center shows
+   **Unmatched · amount**; no notification.
+4. **Unmatched — reference + amount.** Bank panel → *Send with wrong reference*. Center
+   shows **Unmatched · reference + amount**; the money is held, not lost.
+5. **Duplicate.** Bank panel → *Resend last transfer*. Center shows a **Duplicate** row;
+   the event is not re-processed and no second notification fires (idempotency on
+   `transactionId`).
 
 ## Architecture
 
@@ -49,7 +61,7 @@ Bank panel ──POST /api/bank/webhook──► Ingest ──(dedup by transact
                             persist (the 200 OK              ┌────────────────┼────────────────┐
                              acknowledges this)              ▼                ▼                ▼
                                                           Matching          Audit       Notifications
-                                                    (reference → PR)   (append-only)    (lawyer feed)
+                                                  (reference + amount)  (append-only)    (lawyer feed)
 ```
 
 - **Synchronous in-process event bus.** Business logic publishes events; Audit and

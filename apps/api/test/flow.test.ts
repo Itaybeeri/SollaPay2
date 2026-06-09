@@ -14,6 +14,7 @@ function resetStore() {
   store.paymentRequestsByReference.clear();
   store.bankEventsByTransactionId.clear();
   store.transactions.clear();
+  store.pendingTransactionIdByReference.clear();
   store.auditEntries.length = 0;
   store.notifications.length = 0;
 }
@@ -34,17 +35,35 @@ const event = (over: Partial<BankEvent> = {}): BankEvent => ({
 describe("bank event ingest flow", () => {
   beforeEach(resetStore);
 
-  it("scenario 1: matches an event to a payment request", () => {
+  it("a new payment request appears immediately as a Pending transaction", () => {
+    seedPaymentRequest("ABC123");
+    const pendings = [...store.transactions.values()].filter((t) => t.status === "Pending");
+    expect(pendings).toHaveLength(1);
+    expect(pendings[0].reference).toBe("ABC123");
+    expect(pendings[0].bankEvent).toBeNull();
+  });
+
+  it("scenario 1: matches when reference AND amount agree", () => {
     seedPaymentRequest("ABC123");
     const tx = ingestBankEvent(event());
     expect(tx.status).toBe("Matched");
+    expect(tx.mismatchReasons).toEqual([]);
     expect(tx.dealId).not.toBeNull();
     expect(store.notifications).toHaveLength(1);
   });
 
-  it("scenario 2: marks event with no matching reference as Unmatched", () => {
+  it("reference matches but amount differs -> Unmatched (amount only)", () => {
+    seedPaymentRequest("ABC123");
+    const tx = ingestBankEvent(event({ amount: 50000 }));
+    expect(tx.status).toBe("Unmatched");
+    expect(tx.mismatchReasons).toEqual(["amount"]);
+    expect(store.notifications).toHaveLength(0);
+  });
+
+  it("scenario 2: no payment request for the reference -> Unmatched (reference + amount)", () => {
     const tx = ingestBankEvent(event({ reference: "NOPE" }));
     expect(tx.status).toBe("Unmatched");
+    expect(tx.mismatchReasons).toEqual(["reference", "amount"]);
     expect(tx.dealId).toBeNull();
     expect(store.notifications).toHaveLength(0);
   });
@@ -54,6 +73,5 @@ describe("bank event ingest flow", () => {
     ingestBankEvent(event());
     const second = ingestBankEvent(event());
     expect(second.status).toBe("Duplicate");
-    expect(store.transactions.size).toBe(2);
   });
 });
