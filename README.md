@@ -36,7 +36,9 @@ payment request. Otherwise it is **Unmatched**, carrying the reason(s):
 
 - **reference + amount** — no payment request exists for that reference (so the amount
   can't be verified either).
-- **amount** — the reference matched a request, but the amount differs.
+- **amount** — the reference matched a request, but the amount differs. The request
+  stays **Pending** (the wrong transfer is logged separately), so a later correct-amount
+  transfer can still match it — a wrong amount never poisons a good payment.
 
 ## Demo script
 
