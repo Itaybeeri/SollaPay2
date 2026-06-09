@@ -61,7 +61,7 @@ export function LawyerPanel() {
         ) : (
           <ul className="space-y-2">
             {notifications.map((n) => (
-              <li key={n.id} className="flex items-start gap-2 rounded-lg bg-emerald-50 p-2.5 ring-1 ring-emerald-100">
+              <li key={n.id} className="animate-slide-in flex items-start gap-2 rounded-lg bg-emerald-50 p-2.5 ring-1 ring-emerald-100">
                 <Coins size={16} className="mt-0.5 flex-shrink-0 text-emerald-600" />
                 <div>
                   <p className="text-sm text-emerald-900">{n.message}</p>

@@ -2,7 +2,10 @@ import React, { useState } from "react";
 import { Landmark, ChevronDown, ChevronRight, Inbox } from "lucide-react";
 import { api, type Transaction } from "./api.js";
 import { usePolling } from "./usePolling.js";
+import { useStatusFlash } from "./useStatusFlash.js";
 import { StatusBadge, RefChip, fmtAmount, type Status } from "./ui.js";
+
+const ALL_STATUSES: Status[] = ["Pending", "Matched", "Unmatched", "Duplicate"];
 
 // "Unmatched" shows its reason(s) so the two cases are distinguishable at a glance.
 function statusLabel(tx: Transaction): string {
@@ -32,7 +35,7 @@ function PayloadGrid({ bankEvent }: { bankEvent: NonNullable<Transaction["bankEv
   );
 }
 
-function Row({ tx }: { tx: Transaction }) {
+function Row({ tx, flash }: { tx: Transaction; flash: boolean }) {
   const [open, setOpen] = useState(false);
   const headline = tx.bankEvent
     ? `${fmtAmount(tx.bankEvent.amount)} ${tx.bankEvent.currency}`
@@ -40,7 +43,7 @@ function Row({ tx }: { tx: Transaction }) {
   const Chevron = open ? ChevronDown : ChevronRight;
 
   return (
-    <li className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition hover:shadow">
+    <li className={`animate-in overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition hover:shadow ${flash ? "animate-flash" : ""}`}>
       <button className="flex w-full items-center gap-3 p-3 text-left" onClick={() => setOpen(!open)}>
         <Chevron size={16} className="flex-shrink-0 text-slate-400" />
         <div className="min-w-0 flex-1">
@@ -56,14 +59,12 @@ function Row({ tx }: { tx: Transaction }) {
       {open && (
         <div className="space-y-3 border-t border-slate-100 bg-slate-50/60 px-4 py-3">
           <p className="text-xs italic text-slate-500">{tx.matchNote}</p>
-
           <div>
             <p className="mb-1 text-xs font-semibold text-slate-600">Bank payload</p>
             {tx.bankEvent
               ? <PayloadGrid bankEvent={tx.bankEvent} />
               : <p className="text-xs text-slate-400">No transfer received yet — awaiting the bank.</p>}
           </div>
-
           <div>
             <p className="mb-1 text-xs font-semibold text-slate-600">Audit trail</p>
             <ol className="space-y-1.5">
@@ -84,24 +85,62 @@ function Row({ tx }: { tx: Transaction }) {
   );
 }
 
+// Clickable summary: one chip per status (with count) plus an "All" chip.
+function FilterBar({
+  transactions, filter, setFilter,
+}: {
+  transactions: Transaction[];
+  filter: Status | "all";
+  setFilter: (f: Status | "all") => void;
+}) {
+  const count = (s: Status) => transactions.filter((t) => t.status === s).length;
+  const chip = (active: boolean, extra = "") =>
+    `rounded-full px-3 py-1 text-xs font-medium transition ${
+      active ? "bg-slate-900 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
+    } ${extra}`;
+
+  return (
+    <div className="mb-3 flex flex-wrap gap-1.5">
+      <button className={chip(filter === "all")} onClick={() => setFilter("all")}>
+        All {transactions.length}
+      </button>
+      {ALL_STATUSES.map((s) => (
+        <button key={s} className={chip(filter === s)} onClick={() => setFilter(filter === s ? "all" : s)}>
+          {s} {count(s)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function SollaPayPanel() {
   const transactions = usePolling(api.getTransactions) ?? [];
+  const flashing = useStatusFlash(transactions);
+  const [filter, setFilter] = useState<Status | "all">("all");
+
+  const visible = filter === "all" ? transactions : transactions.filter((t) => t.status === filter);
+
   return (
     <section className="flex flex-1 flex-col overflow-hidden">
       <div className="mb-3 flex items-center gap-2 px-1">
         <Landmark size={16} className="text-indigo-600" />
         <h2 className="text-sm font-semibold text-slate-700">Transactions</h2>
-        <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs text-slate-600">{transactions.length}</span>
       </div>
 
-      {transactions.length === 0 ? (
+      <FilterBar transactions={transactions} filter={filter} setFilter={setFilter} />
+
+      {visible.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center text-slate-400">
           <Inbox size={32} />
-          <p className="mt-2 text-sm">No transactions yet. Create a request or send a transfer.</p>
+          <p className="mt-2 text-sm">
+            {transactions.length === 0
+              ? "No transactions yet. Create a request or send a transfer."
+              : `No ${filter} transactions.`}
+          </p>
         </div>
       ) : (
         <ul className="flex-1 space-y-2 overflow-auto pr-1">
-          {transactions.map((t) => <Row key={t.id} tx={t} />)}
+          {visible.map((t) => <Row key={t.id} tx={t} flash={flashing.has(t.id)} />)}
         </ul>
       )}
     </section>
