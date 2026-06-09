@@ -2,6 +2,7 @@ import { Router } from "express";
 import { store, newId, now } from "./store.js";
 import { eventBus } from "./eventBus.js";
 import { ingestBankEvent } from "./ingest.js";
+import { matchPaymentRequest } from "./matching.js";
 import type { Deal, PaymentRequest, Transaction, AuditEntry } from "./types.js";
 
 // Plain functions so tests can call them directly without HTTP.
@@ -17,8 +18,11 @@ export function createPaymentRequest(input: {
   const pr: PaymentRequest = { id: newId("pr"), ...input, createdAt: now() };
   store.paymentRequestsByReference.set(pr.reference, pr);
 
-  // A new payment request shows up immediately in the transactions view as
-  // Pending — it is awaiting the matching bank transfer.
+  // The transfer may have arrived first: if a waiting Unmatched transfer fits,
+  // adopt it now (it becomes Matched) instead of opening a new Pending row.
+  if (matchPaymentRequest(pr)) return pr;
+
+  // Otherwise the request shows up immediately as Pending, awaiting the transfer.
   const tx: Transaction = {
     id: newId("txn"), reference: pr.reference, expectedAmount: pr.expectedAmount,
     bankEvent: null, status: "Pending", mismatchReasons: [],

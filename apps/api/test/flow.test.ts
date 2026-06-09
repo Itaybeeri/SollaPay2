@@ -68,6 +68,21 @@ describe("bank event ingest flow", () => {
     expect(store.notifications).toHaveLength(0);
   });
 
+  it("retroactive match: a transfer that arrives before its request is matched when the request is created", () => {
+    const orphan = ingestBankEvent(event()); // ref ABC123, amount 70000, no request yet
+    expect(orphan.status).toBe("Unmatched");
+    expect(orphan.mismatchReasons).toEqual(["reference", "amount"]);
+
+    seedPaymentRequest("ABC123"); // expected 70000 — matches the waiting transfer
+
+    const adopted = store.transactions.get(orphan.id)!;
+    expect(adopted.status).toBe("Matched");
+    expect(adopted.dealId).not.toBeNull();
+    expect(store.notifications).toHaveLength(1);
+    // No separate Pending row is opened.
+    expect([...store.transactions.values()].filter((t) => t.status === "Pending")).toHaveLength(0);
+  });
+
   it("scenario 3: a repeated transactionId is recorded as Duplicate", () => {
     seedPaymentRequest("ABC123");
     ingestBankEvent(event());
