@@ -1,6 +1,6 @@
 import { store, newId, now } from "./store.js";
 import { eventBus } from "./eventBus.js";
-import type { BankEvent, Transaction } from "./types.js";
+import type { BankEvent, PaymentRequest, Transaction } from "./types.js";
 
 // Match a bank event to a waiting payment request by reference AND amount.
 // A transaction is Matched only when both agree. Otherwise it is Unmatched and
@@ -41,4 +41,29 @@ export function matchBankEvent(bankEvent: BankEvent): Transaction {
     eventBus.emit("transaction.unmatched", pending);
   }
   return pending;
+}
+
+// The other direction: a transfer may arrive BEFORE its payment request exists.
+// When the lawyer later creates a request, adopt a waiting Unmatched transfer
+// whose reference AND amount agree, turning it into a Matched transaction.
+// Returns the adopted transaction, or null if none was waiting.
+export function matchPaymentRequest(pr: PaymentRequest): Transaction | null {
+  for (const tx of store.transactions.values()) {
+    if (
+      tx.status === "Unmatched" &&
+      tx.bankEvent !== null &&
+      tx.bankEvent.reference === pr.reference &&
+      tx.bankEvent.amount === pr.expectedAmount
+    ) {
+      tx.status = "Matched";
+      tx.mismatchReasons = [];
+      tx.paymentRequestId = pr.id;
+      tx.dealId = pr.dealId;
+      tx.expectedAmount = pr.expectedAmount;
+      tx.matchNote = `Matched reference ${pr.reference} and amount ${pr.expectedAmount} ${pr.currency} (transfer had arrived before the request)`;
+      eventBus.emit("transaction.matched", tx);
+      return tx;
+    }
+  }
+  return null;
 }
