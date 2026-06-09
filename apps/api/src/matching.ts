@@ -1,6 +1,6 @@
 import { store, newId, now } from "./store.js";
 import { eventBus } from "./eventBus.js";
-import type { BankEvent, PaymentRequest, Transaction } from "./types.js";
+import type { BankEvent, MismatchReason, PaymentRequest, Transaction } from "./types.js";
 
 // All still-Pending requests for a reference, oldest first. References are not
 // unique, so several deals can be waiting on the same one; we consume them FIFO.
@@ -29,24 +29,20 @@ export function matchBankEvent(bankEvent: BankEvent): Transaction {
     return exact;
   }
 
-  // Reference matches a waiting request but no amount fits: amount unmatched.
-  if (pendings.length > 0) {
-    const pending = pendings[0];
-    pending.bankEvent = bankEvent;
-    pending.status = "Unmatched";
-    pending.mismatchReasons = ["amount"];
-    pending.matchNote = `Reference ${bankEvent.reference} matched but amount ${bankEvent.amount} != expected ${pending.expectedAmount} — amount unmatched`;
-    eventBus.emit("transaction.unmatched", pending);
-    return pending;
-  }
+  // No open request fits this transfer. Record it as its OWN Unmatched row and
+  // leave any same-reference requests Pending, so a later correct-amount transfer
+  // can still match them (a wrong amount must not poison a good payment).
+  const referenceKnown = pendings.length > 0;
+  const reasons: MismatchReason[] = referenceKnown ? ["amount"] : ["reference", "amount"];
+  const matchNote = referenceKnown
+    ? `Reference ${bankEvent.reference} matched an open request but amount ${bankEvent.amount} fits no expected amount — amount unmatched`
+    : `No payment request for reference ${bankEvent.reference} — reference and amount unmatched`;
 
-  // No request waiting on this reference: both checks fail.
   const tx: Transaction = {
     id: newId("txn"), reference: bankEvent.reference, expectedAmount: null,
-    bankEvent, status: "Unmatched", mismatchReasons: ["reference", "amount"],
+    bankEvent, status: "Unmatched", mismatchReasons: reasons,
     paymentRequestId: null, dealId: null,
-    matchNote: `No payment request for reference ${bankEvent.reference} — reference and amount unmatched`,
-    createdAt: now(),
+    matchNote, createdAt: now(),
   };
   store.transactions.set(tx.id, tx);
   eventBus.emit("transaction.unmatched", tx);

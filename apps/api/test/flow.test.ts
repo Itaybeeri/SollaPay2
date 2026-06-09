@@ -51,12 +51,27 @@ describe("bank event ingest flow", () => {
     expect(store.notifications).toHaveLength(1);
   });
 
-  it("reference matches but amount differs -> Unmatched (amount only)", () => {
+  it("reference matches but amount differs -> Unmatched (amount only), request stays Pending", () => {
     seedPaymentRequest("ABC123");
     const tx = ingestBankEvent(event({ amount: 50000 }));
     expect(tx.status).toBe("Unmatched");
     expect(tx.mismatchReasons).toEqual(["amount"]);
     expect(store.notifications).toHaveLength(0);
+    // The request is not consumed — it is still waiting for the correct amount.
+    expect([...store.transactions.values()].filter((t) => t.status === "Pending")).toHaveLength(1);
+  });
+
+  it("a wrong amount does not poison a later correct payment", () => {
+    seedPaymentRequest("ABC123"); // expected 70000
+    const wrong = ingestBankEvent(event({ transactionId: "t1", amount: 50000 }));
+    expect(wrong.status).toBe("Unmatched");
+    expect(wrong.mismatchReasons).toEqual(["amount"]);
+    expect(store.notifications).toHaveLength(0);
+
+    const correct = ingestBankEvent(event({ transactionId: "t2", amount: 70000 }));
+    expect(correct.status).toBe("Matched");
+    expect(store.notifications).toHaveLength(1);
+    expect([...store.transactions.values()].filter((t) => t.status === "Pending")).toHaveLength(0);
   });
 
   it("scenario 2: no payment request for the reference -> Unmatched (reference + amount)", () => {
