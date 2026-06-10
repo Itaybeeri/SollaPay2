@@ -66,9 +66,9 @@ export function QandA() {
             <Tradeoff
               mvp="No auth; open webhook"
               prod={<>
-                <Tip term="RBAC">Role-Based Access Control: permissions granted by role (lawyer / ops / buyer), so each user can only see and do what their role allows.</Tip>
+                <Tip term="RBAC">Role-Based Access Control — permissions limited by role (lawyer / ops / buyer).</Tip>
                 {" + "}
-                <Tip term="HMAC">Hash-based Message Authentication Code: the bank signs each webhook with a shared secret and we re-check the signature — proving the event really came from the bank and wasn't tampered with.</Tip>
+                <Tip term="HMAC">Signed webhook — verifies the event truly came from the bank.</Tip>
                 {"-signed webhooks"}
               </>}
             />
