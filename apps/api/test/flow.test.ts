@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { store } from "../src/store.js";
 import { createDeal, createPaymentRequest } from "../src/routes.js";
 import { ingestBankEvent } from "../src/ingest.js";
+import { buildReferenceGroup } from "../src/references.js";
 import { registerAudit } from "../src/audit.js";
 import { registerNotifications } from "../src/notifications.js";
 import type { BankEvent } from "../src/types.js";
@@ -13,109 +14,101 @@ function resetStore() {
   store.deals.clear();
   store.paymentRequests.clear();
   store.bankEventsByTransactionId.clear();
-  store.transactions.clear();
+  store.duplicateEvents.length = 0;
+  store.matchedReferences.clear();
   store.auditEntries.length = 0;
   store.notifications.length = 0;
 }
 
-function seedPaymentRequest(reference: string) {
+function request(reference: string, expectedAmount: number) {
   const deal = createDeal({ name: "Apt 4B", buyerName: "John Doe" });
-  return createPaymentRequest({
-    dealId: deal.id, reference, expectedAmount: 70000, currency: "ILS",
-  });
+  return createPaymentRequest({ dealId: deal.id, reference, expectedAmount, currency: "ILS" });
 }
 
-const event = (over: Partial<BankEvent> = {}): BankEvent => ({
-  transactionId: "tx_123", amount: 70000, currency: "ILS",
+const transfer = (over: Partial<BankEvent> = {}): BankEvent => ({
+  transactionId: "tx_1", amount: 70000, currency: "ILS",
   reference: "ABC123", senderName: "John Doe",
   occurredAt: "2026-06-03T10:00:00Z", ...over,
 });
 
-describe("bank event ingest flow", () => {
+const group = (reference = "ABC123") => buildReferenceGroup(reference);
+
+describe("reference aggregation", () => {
   beforeEach(resetStore);
 
-  it("a new payment request appears immediately as a Pending transaction", () => {
-    seedPaymentRequest("ABC123");
-    const pendings = [...store.transactions.values()].filter((t) => t.status === "Pending");
-    expect(pendings).toHaveLength(1);
-    expect(pendings[0].reference).toBe("ABC123");
-    expect(pendings[0].bankEvent).toBeNull();
+  it("a deal with no transfer is Short by the full amount", () => {
+    request("ABC123", 70000);
+    const g = group();
+    expect(g.status).toBe("Short");
+    expect(g.difference).toBe(-70000);
+    expect(g.totalRequested).toBe(70000);
+    expect(g.totalTransferred).toBe(0);
   });
 
-  it("scenario 1: matches when reference AND amount agree", () => {
-    seedPaymentRequest("ABC123");
-    const tx = ingestBankEvent(event());
-    expect(tx.status).toBe("Matched");
-    expect(tx.mismatchReasons).toEqual([]);
-    expect(tx.dealId).not.toBeNull();
+  it("exact single transfer is Matched and notifies once", () => {
+    request("ABC123", 70000);
+    ingestBankEvent(transfer());
+    const g = group();
+    expect(g.status).toBe("Matched");
     expect(store.notifications).toHaveLength(1);
   });
 
-  it("reference matches but amount differs -> Unmatched (amount only), request stays Pending", () => {
-    seedPaymentRequest("ABC123");
-    const tx = ingestBankEvent(event({ amount: 50000 }));
-    expect(tx.status).toBe("Unmatched");
-    expect(tx.mismatchReasons).toEqual(["amount"]);
-    expect(store.notifications).toHaveLength(0);
-    // The request is not consumed — it is still waiting for the correct amount.
-    expect([...store.transactions.values()].filter((t) => t.status === "Pending")).toHaveLength(1);
-  });
+  it("split transfers that sum to the requested total are Matched (40000 + 30000 = 70000)", () => {
+    request("ABC123", 70000);
+    ingestBankEvent(transfer({ transactionId: "tx_a", amount: 40000 }));
+    let g = group();
+    expect(g.status).toBe("Short");
+    expect(g.difference).toBe(-30000);
 
-  it("a wrong amount does not poison a later correct payment", () => {
-    seedPaymentRequest("ABC123"); // expected 70000
-    const wrong = ingestBankEvent(event({ transactionId: "t1", amount: 50000 }));
-    expect(wrong.status).toBe("Unmatched");
-    expect(wrong.mismatchReasons).toEqual(["amount"]);
-    expect(store.notifications).toHaveLength(0);
-
-    const correct = ingestBankEvent(event({ transactionId: "t2", amount: 70000 }));
-    expect(correct.status).toBe("Matched");
+    ingestBankEvent(transfer({ transactionId: "tx_b", amount: 30000 }));
+    g = group();
+    expect(g.status).toBe("Matched");
+    expect(g.totalTransferred).toBe(70000);
     expect(store.notifications).toHaveLength(1);
-    expect([...store.transactions.values()].filter((t) => t.status === "Pending")).toHaveLength(0);
   });
 
-  it("scenario 2: no payment request for the reference -> Unmatched (reference + amount)", () => {
-    const tx = ingestBankEvent(event({ reference: "NOPE" }));
-    expect(tx.status).toBe("Unmatched");
-    expect(tx.mismatchReasons).toEqual(["reference", "amount"]);
-    expect(tx.dealId).toBeNull();
+  it("too little money is Short with the missing amount", () => {
+    request("ABC123", 70000);
+    ingestBankEvent(transfer({ amount: 40000 }));
+    const g = group();
+    expect(g.status).toBe("Short");
+    expect(g.difference).toBe(-30000);
     expect(store.notifications).toHaveLength(0);
   });
 
-  it("retroactive match: a transfer that arrives before its request is matched when the request is created", () => {
-    const orphan = ingestBankEvent(event()); // ref ABC123, amount 70000, no request yet
-    expect(orphan.status).toBe("Unmatched");
-    expect(orphan.mismatchReasons).toEqual(["reference", "amount"]);
-
-    seedPaymentRequest("ABC123"); // expected 70000 — matches the waiting transfer
-
-    const adopted = store.transactions.get(orphan.id)!;
-    expect(adopted.status).toBe("Matched");
-    expect(adopted.dealId).not.toBeNull();
-    expect(store.notifications).toHaveLength(1);
-    // No separate Pending row is opened.
-    expect([...store.transactions.values()].filter((t) => t.status === "Pending")).toHaveLength(0);
+  it("too much money is Overpaid with the surplus", () => {
+    request("ABC123", 70000);
+    ingestBankEvent(transfer({ amount: 100000 }));
+    const g = group();
+    expect(g.status).toBe("Overpaid");
+    expect(g.difference).toBe(30000);
   });
 
-  it("multiple requests with the same reference are matched one-per-transfer (FIFO)", () => {
-    seedPaymentRequest("ABC123"); // three deals, same reference + amount
-    seedPaymentRequest("ABC123");
-    seedPaymentRequest("ABC123");
-
-    ingestBankEvent(event({ transactionId: "tx_a" })); // first transfer
-    ingestBankEvent(event({ transactionId: "tx_b" })); // second transfer
-
-    const byStatus = (s: string) =>
-      [...store.transactions.values()].filter((t) => t.status === s).length;
-    expect(byStatus("Matched")).toBe(2);   // two transfers consumed two pendings
-    expect(byStatus("Pending")).toBe(1);   // one request still waiting
-    expect(store.notifications).toHaveLength(2);
+  it("transfers with no deal are Unexpected", () => {
+    ingestBankEvent(transfer({ amount: 50000 }));
+    const g = group();
+    expect(g.status).toBe("Unexpected");
+    expect(g.totalRequested).toBe(0);
+    expect(g.totalTransferred).toBe(50000);
   });
 
-  it("scenario 3: a repeated transactionId is recorded as Duplicate", () => {
-    seedPaymentRequest("ABC123");
-    ingestBankEvent(event());
-    const second = ingestBankEvent(event());
-    expect(second.status).toBe("Duplicate");
+  it("multiple deals on one reference sum together", () => {
+    request("ABC123", 50000);
+    request("ABC123", 50000); // total requested 100000
+    ingestBankEvent(transfer({ amount: 100000 }));
+    const g = group();
+    expect(g.totalRequested).toBe(100000);
+    expect(g.status).toBe("Matched");
+  });
+
+  it("a duplicate transactionId is recorded but not counted in totals", () => {
+    request("ABC123", 70000);
+    ingestBankEvent(transfer());
+    const second = ingestBankEvent(transfer()); // same transactionId
+    expect(second.duplicate).toBe(true);
+    const g = group();
+    expect(g.duplicateCount).toBe(1);
+    expect(g.totalTransferred).toBe(70000); // not doubled
+    expect(g.status).toBe("Matched");
   });
 });

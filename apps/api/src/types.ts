@@ -1,15 +1,5 @@
 // All shared domain types live here so the model is readable in one place.
 
-export type TransactionStatus =
-  | "Pending"    // payment request created, awaiting the bank transfer
-  | "Matched"    // bank event reference AND amount match the request
-  | "Unmatched"  // reference and/or amount did not match (see mismatchReasons)
-  | "Duplicate"; // this transactionId was already processed
-
-// Why a bank event was not matched. Both can be present at once: a wrong
-// reference means there is no request to verify the amount against, so both fail.
-export type MismatchReason = "reference" | "amount";
-
 export interface Deal {
   id: string;
   name: string;          // e.g. "Apartment 4B, Tel Aviv project"
@@ -20,7 +10,7 @@ export interface Deal {
 export interface PaymentRequest {
   id: string;
   dealId: string;
-  reference: string;     // unique code the bank must quote
+  reference: string;     // the code the bank must quote (NOT unique — deals can share one)
   expectedAmount: number;
   currency: string;
   createdAt: string;
@@ -36,30 +26,38 @@ export interface BankEvent {
   occurredAt: string;
 }
 
-export interface Transaction {
-  id: string;
-  reference: string;             // the code shared by the request and the bank event
-  expectedAmount: number | null; // from the payment request; null for orphan bank events
-  bankEvent: BankEvent | null;   // null while Pending (no transfer received yet)
-  status: TransactionStatus;
-  mismatchReasons: MismatchReason[]; // populated only when status is "Unmatched"
-  paymentRequestId: string | null;
-  dealId: string | null;
-  matchNote: string;             // human-readable matching decision
-  createdAt: string;
+// Everything is grouped by reference. A group rolls up every deal and every
+// transfer sharing a reference and compares totals.
+//   Matched    – total transferred == total requested
+//   Short      – total transferred  < total requested (missing the difference)
+//   Overpaid   – total transferred  > total requested (too much)
+//   Unexpected – transfers arrived but no deal exists for the reference
+export type ReferenceStatus = "Matched" | "Short" | "Overpaid" | "Unexpected";
+
+export interface ReferenceGroup {
+  reference: string;
+  currency: string;
+  requests: PaymentRequest[];
+  transfers: BankEvent[];     // counted transfers (duplicates excluded)
+  duplicateCount: number;     // duplicate transactionId attempts, ignored in totals
+  totalRequested: number;
+  totalTransferred: number;
+  difference: number;         // transferred - requested (negative = short)
+  status: ReferenceStatus;
+  summary: string;            // e.g. "2 transfers · 1 deal — missing 30,000 ILS"
 }
 
 export interface AuditEntry {
   id: string;
   at: string;
-  action: string;        // e.g. "bank.event.received"
+  action: string;             // e.g. "transfer.received"
   detail: string;
-  transactionId: string | null;
+  reference: string | null;
 }
 
 export interface Notification {
   id: string;
   at: string;
-  dealId: string;
+  reference: string;
   message: string;
 }

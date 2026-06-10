@@ -1,27 +1,18 @@
-import { store, newId, now } from "./store.js";
+import { store } from "./store.js";
 import { eventBus } from "./eventBus.js";
-import { matchBankEvent } from "./matching.js";
-import type { BankEvent, Transaction } from "./types.js";
+import { evaluateReference } from "./references.js";
+import type { BankEvent, ReferenceGroup } from "./types.js";
 
 // Webhook entry point. Persist first (this is what the 200 OK acknowledges),
-// dedup by transactionId, then run matching.
-export function ingestBankEvent(bankEvent: BankEvent): Transaction {
-  const seen = store.bankEventsByTransactionId.has(bankEvent.transactionId);
-
-  if (seen) {
-    const dup: Transaction = {
-      id: newId("txn"), reference: bankEvent.reference, expectedAmount: null,
-      bankEvent, status: "Duplicate", mismatchReasons: [],
-      paymentRequestId: null, dealId: null,
-      matchNote: `Duplicate transactionId ${bankEvent.transactionId} — ignored`,
-      createdAt: now(),
-    };
-    store.transactions.set(dup.id, dup);
-    eventBus.emit("transaction.duplicate", dup);
-    return dup;
+// dedup by transactionId, then re-evaluate the reference's rolled-up status.
+export function ingestBankEvent(bankEvent: BankEvent): { duplicate: boolean; group: ReferenceGroup } {
+  if (store.bankEventsByTransactionId.has(bankEvent.transactionId)) {
+    store.duplicateEvents.push(bankEvent); // recorded for the breakdown, not counted in totals
+    eventBus.emit("transfer.duplicate", bankEvent);
+    return { duplicate: true, group: evaluateReference(bankEvent.reference) };
   }
 
   store.bankEventsByTransactionId.set(bankEvent.transactionId, bankEvent); // durable write
-  eventBus.emit("bank.event.received", bankEvent);
-  return matchBankEvent(bankEvent);
+  eventBus.emit("transfer.received", bankEvent);
+  return { duplicate: false, group: evaluateReference(bankEvent.reference) };
 }

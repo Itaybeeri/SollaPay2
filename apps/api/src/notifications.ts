@@ -1,14 +1,14 @@
-import { store, newId, now } from "./store.js";
+import { store, newId, now, fmt } from "./store.js";
 import { eventBus } from "./eventBus.js";
-import type { Transaction } from "./types.js";
+import type { ReferenceGroup } from "./types.js";
 
-// Notify the lawyer only when funds are matched to their deal.
+// Notify the lawyer when a reference is fully funded.
 export function registerNotifications(): void {
-  eventBus.on("transaction.matched", (p) => {
-    const t = p as Transaction;
+  eventBus.on("reference.matched", (p) => {
+    const g = p as ReferenceGroup;
     store.notifications.push({
-      id: newId("ntf"), at: now(), dealId: t.dealId!,
-      message: `${t.bankEvent!.amount} ${t.bankEvent!.currency} received from ${t.bankEvent!.senderName}`,
+      id: newId("ntf"), at: now(), reference: g.reference,
+      message: `Reference ${g.reference} fully funded — ${fmt(g.totalTransferred)} ${g.currency} received`,
     });
   });
 }

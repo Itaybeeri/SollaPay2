@@ -2,8 +2,8 @@ import { Router } from "express";
 import { store, newId, now } from "./store.js";
 import { eventBus } from "./eventBus.js";
 import { ingestBankEvent } from "./ingest.js";
-import { matchPaymentRequest } from "./matching.js";
-import type { Deal, PaymentRequest, Transaction, AuditEntry } from "./types.js";
+import { allReferenceGroups, evaluateReference } from "./references.js";
+import type { Deal, PaymentRequest, AuditEntry } from "./types.js";
 
 // Plain functions so tests can call them directly without HTTP.
 export function createDeal(input: { name: string; buyerName: string }): Deal {
@@ -17,33 +17,20 @@ export function createPaymentRequest(input: {
 }): PaymentRequest {
   const pr: PaymentRequest = { id: newId("pr"), ...input, createdAt: now() };
   store.paymentRequests.set(pr.id, pr);
-
-  // The transfer may have arrived first: if a waiting Unmatched transfer fits,
-  // adopt it now (it becomes Matched) instead of opening a new Pending row.
-  if (matchPaymentRequest(pr)) return pr;
-
-  // Otherwise the request shows up immediately as Pending, awaiting the transfer.
-  const tx: Transaction = {
-    id: newId("txn"), reference: pr.reference, expectedAmount: pr.expectedAmount,
-    bankEvent: null, status: "Pending", mismatchReasons: [],
-    paymentRequestId: pr.id, dealId: pr.dealId,
-    matchNote: `Awaiting payment of ${pr.expectedAmount} ${pr.currency} (ref ${pr.reference})`,
-    createdAt: now(),
-  };
-  store.transactions.set(tx.id, tx);
-  eventBus.emit("transaction.pending", tx);
+  eventBus.emit("request.created", pr);
+  evaluateReference(pr.reference); // a transfer may already be waiting on this reference
   return pr;
 }
 
-function auditFor(transactionId: string): AuditEntry[] {
-  return store.auditEntries.filter((a) => a.transactionId === transactionId);
+function auditFor(reference: string): AuditEntry[] {
+  return store.auditEntries.filter((a) => a.reference === reference);
 }
 
 export const router = Router();
 
 router.post("/bank/webhook", (req, res) => {
-  const tx = ingestBankEvent(req.body); // 200 returned only after persistence + processing
-  res.status(200).json(tx);
+  const result = ingestBankEvent(req.body); // 200 only after persistence + evaluation
+  res.status(200).json(result);
 });
 
 router.post("/deals", (req, res) => res.status(201).json(createDeal(req.body)));
@@ -51,7 +38,7 @@ router.post("/payment-requests", (req, res) => res.status(201).json(createPaymen
 
 router.get("/deals", (_req, res) => res.json([...store.deals.values()]));
 router.get("/payment-requests", (_req, res) => res.json([...store.paymentRequests.values()]));
-router.get("/transactions", (_req, res) =>
-  res.json([...store.transactions.values()].reverse().map((t) => ({ ...t, audit: auditFor(t.id) }))));
+router.get("/references", (_req, res) =>
+  res.json(allReferenceGroups().map((g) => ({ ...g, audit: auditFor(g.reference) }))));
 router.get("/notifications", (_req, res) => res.json([...store.notifications].reverse()));
 router.get("/audit", (_req, res) => res.json([...store.auditEntries].reverse()));

@@ -25,35 +25,36 @@ Three side-by-side panels, each a window onto the same flow:
 
 | Panel | Role |
 |-------|------|
-| **Bank** (left) | Compose & send a bank webhook. Buttons fire the matched / wrong-reference / wrong-amount / duplicate cases. |
-| **SollaPay** (center) | Every transaction with its status (`Pending` / `Matched` / `Unmatched` / `Duplicate`). A new payment request shows up here as **Pending** right away and flips to **Matched** when funds arrive. Click a row to expand the bank payload + audit trail. |
+| **Bank** (left) | Compose & send a bank webhook. Buttons fire transfers and the duplicate case. |
+| **SollaPay** (center) | One line **per reference**, rolling up every deal and every transfer that share it. Status is derived from the totals; click a line to expand its deals, transfers, ignored duplicates, and audit trail. |
 | **Lawyer** (right) | Create a Deal + Payment Request (the reference the bank must quote) and watch the notification feed. |
 
-## Matching rule
+## Matching rule — aggregation by reference
 
-A transfer is **Matched** only when **both the reference and the amount** equal the
-payment request. Otherwise it is **Unmatched**, carrying the reason(s):
+Everything is grouped by **reference**. A reference's status comes from comparing the
+**total transferred** against the **total requested** (summed across all of its deals
+and all of its transfers):
 
-- **reference + amount** — no payment request exists for that reference (so the amount
-  can't be verified either).
-- **amount** — the reference matched a request, but the amount differs. The request
-  stays **Pending** (the wrong transfer is logged separately), so a later correct-amount
-  transfer can still match it — a wrong amount never poisons a good payment.
+- **Matched** — totals are equal (e.g. a 70,000 deal funded by 40,000 + 30,000).
+- **Short** — transferred < requested → *Missing X*.
+- **Overpaid** — transferred > requested → *Over by X*.
+- **Unexpected** — transfers arrived but no deal exists for the reference.
+- **Duplicates** (same `transactionId`) are shown in the breakdown but never counted.
+
+Because status is *derived from sums*, order of arrival never matters — a transfer that
+arrives before its deal, split payments, and corrections all just work.
 
 ## Demo script
 
-1. **Pending.** Lawyer panel → *Create deal + payment request* (ref `ABC123`, amount
-   `70000`). The center panel immediately shows a **Pending** row.
-2. **Matched.** Bank panel → *Send transfer (this reference + amount)*. The Pending row
-   flips to **Matched**; expand it for payload + audit; a notification appears in the
-   Lawyer feed.
-3. **Unmatched — amount.** Bank panel → *Send with wrong amount*. Center shows
-   **Unmatched · amount**; no notification.
-4. **Unmatched — reference + amount.** Bank panel → *Send with wrong reference*. Center
-   shows **Unmatched · reference + amount**; the money is held, not lost.
-5. **Duplicate.** Bank panel → *Resend last transfer*. Center shows a **Duplicate** row;
-   the event is not re-processed and no second notification fires (idempotency on
-   `transactionId`).
+1. **Short.** Lawyer panel → create a deal (ref `ABC123`, amount `70000`). The center
+   shows reference `ABC123` as **Missing 70,000**.
+2. **Split → Matched.** Bank panel → send `40000`, then `30000` (same ref). The line
+   goes Short → **Matched**; a notification appears in the Lawyer feed. Expand to see
+   both transfers under the one reference.
+3. **Overpaid.** New deal `XYZ`/`70000`, then a `100000` transfer → **Over by 30,000**.
+4. **Unexpected.** Send a transfer with a reference that has no deal → **Unexpected funds**.
+5. **Duplicate.** *Resend last transfer* → the breakdown shows "1 duplicate ignored" and
+   the total is unchanged (idempotency on `transactionId`).
 
 ## Architecture
 
@@ -62,27 +63,29 @@ Bank panel ──POST /api/bank/webhook──► Ingest ──(dedup by transact
                                           │                                   │
                             persist (the 200 OK              ┌────────────────┼────────────────┐
                              acknowledges this)              ▼                ▼                ▼
-                                                          Matching          Audit       Notifications
-                                                  (reference + amount)  (append-only)    (lawyer feed)
+                                                       evaluateReference     Audit       Notifications
+                                                     (re-derive totals)  (append-only)    (lawyer feed)
 ```
 
+- **Reference is the unit.** `references.ts` derives each reference's status purely from
+  the summed totals of its deals and transfers (`buildReferenceGroup`), so there is no
+  per-event state machine to get out of sync.
 - **Synchronous in-process event bus.** Business logic publishes events; Audit and
-  Notifications *react* to them — they are never called directly. This keeps the flow
-  easy to follow and easy to extend.
+  Notifications *react* to them — they are never called directly.
 - **Persist-before-acknowledge.** The webhook returns `200 OK` only after the event is
   durably stored, so the bank never considers a transfer delivered while it could be lost.
-- **Idempotency.** `transactionId` is the dedup key; a repeat is recorded as `Duplicate`
-  and short-circuits before matching.
+- **Idempotency.** `transactionId` is the dedup key; a repeat is recorded as a duplicate
+  and excluded from the totals.
 
 ### Where things live (API)
 
 | File | Responsibility |
 |------|----------------|
-| `apps/api/src/types.ts` | Domain types (Deal, PaymentRequest, BankEvent, Transaction, AuditEntry, Notification) |
+| `apps/api/src/types.ts` | Domain types (Deal, PaymentRequest, BankEvent, ReferenceGroup, AuditEntry, Notification) |
 | `apps/api/src/store.ts` | In-memory collections |
+| `apps/api/src/references.ts` | Reference aggregation — build a group, derive status, fire fully-funded |
 | `apps/api/src/eventBus.ts` | Tiny sync pub/sub |
-| `apps/api/src/ingest.ts` | Webhook entry: persist + dedup |
-| `apps/api/src/matching.ts` | Reference → payment request |
+| `apps/api/src/ingest.ts` | Webhook entry: persist + dedup, then re-evaluate the reference |
 | `apps/api/src/audit.ts` | Append-only audit (subscriber) |
 | `apps/api/src/notifications.ts` | Lawyer notifications (subscriber) |
 | `apps/api/src/routes.ts` / `server.ts` | Express routes + wiring |

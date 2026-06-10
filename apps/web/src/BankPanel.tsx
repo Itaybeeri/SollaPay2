@@ -21,13 +21,9 @@ export function BankPanel() {
     const id = nextTxId(); setLastTxId(id);
     await api.sendWebhook(payload(id, reference));
   }
-  async function sendWrongReference() {
+  async function sendUnknownReference() {
     const id = nextTxId(); setLastTxId(id);
-    await api.sendWebhook(payload(id, "NO-MATCH-999")); // reference + amount unmatched
-  }
-  async function sendWrongAmount() {
-    const id = nextTxId(); setLastTxId(id);
-    await api.sendWebhook({ ...payload(id, reference), amount: amount + 1 }); // amount unmatched
+    await api.sendWebhook(payload(id, "NO-MATCH-999")); // a reference with no deal -> Unexpected
   }
   async function sendDuplicate() {
     if (!lastTxId) return; // resend the previous transactionId
@@ -46,13 +42,13 @@ export function BankPanel() {
         <Button variant="sky" onClick={sendMatched}>
           <span className="inline-flex items-center justify-center gap-2"><Send size={15} /> Send transfer</span>
         </Button>
+        <p className="text-xs text-slate-400">Tip: send part of the amount, then the rest — the reference fills up.</p>
       </Card>
 
       <Card className="space-y-2">
         <p className="text-sm font-semibold text-slate-700">Try a scenario</p>
-        <Button variant="outline" onClick={sendWrongReference}>Wrong reference → unmatched (ref + amount)</Button>
-        <Button variant="outline" onClick={sendWrongAmount}>Wrong amount → unmatched (amount)</Button>
-        <Button variant="outline" disabled={!lastTxId} onClick={sendDuplicate}>Resend last → duplicate</Button>
+        <Button variant="outline" onClick={sendUnknownReference}>Send to unknown reference → unexpected</Button>
+        <Button variant="outline" disabled={!lastTxId} onClick={sendDuplicate}>Resend last → duplicate (ignored)</Button>
         <p className="pt-1 text-xs text-slate-400">Last transactionId: {lastTxId ?? "—"}</p>
       </Card>
     </section>
