@@ -57,7 +57,6 @@ export function QandA() {
             <Tradeoff mvp="UI polling (~1s)" prod="SSE / WebSocket push" />
             <Tradeoff mvp="No auth; open webhook" prod="RBAC + HMAC-signed webhooks" />
             <Tradeoff mvp="Single currency assumed" prod="Multi-currency / FX handling" />
-            <Tradeoff mvp="Totals recomputed on read" prod="Materialized / cached totals" />
             <Tradeoff mvp="In-app notification feed" prod="Email / SMS / WhatsApp with delivery guarantees" />
             <Tradeoff mvp="Short/Overpaid surfaced only" prod="Business rules: hold, alert ops, refund, partial release" />
           </tbody>
