@@ -43,6 +43,73 @@ export function QandA() {
         discussion scenarios — the parts meant for conversation, not code.
       </p>
 
+      <Section title="MVP tradeoffs vs. a production version">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-400">
+              <th className="py-1.5 pr-4 font-medium">MVP (built)</th>
+              <th className="py-1.5 font-medium">Production (next)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <Tradeoff mvp="In-memory store" prod="Real DB with unique/index constraints" />
+            <Tradeoff mvp="Synchronous in-process event bus" prod="Durable broker + workers + DLQ" />
+            <Tradeoff mvp="UI polling (~1s)" prod="SSE / WebSocket push" />
+            <Tradeoff mvp="No auth; open webhook" prod="RBAC + HMAC-signed webhooks" />
+            <Tradeoff mvp="Single currency assumed" prod="Multi-currency / FX handling" />
+            <Tradeoff mvp="Totals recomputed on read" prod="Materialized / cached totals" />
+            <Tradeoff mvp="In-app notification feed" prod="Email / SMS / WhatsApp with delivery guarantees" />
+            <Tradeoff mvp="Short/Overpaid surfaced only" prod="Business rules: hold, alert ops, refund, partial release" />
+          </tbody>
+        </table>
+      </Section>
+
+      <Section title="Scenario 4 — the component that records the action is unavailable">
+        <p>
+          The rule that anchors everything: we return <Code>200</Code> to the bank <b>only once the
+          event is durably persisted somewhere we can recover from</b>. So if the primary database
+          write isn't available, there are two valid responses:
+        </p>
+        <Sub title="Option A — reject, let the bank retry" />
+        <p>
+          Return a non-2xx. We never acknowledge what we didn't store, so the bank's retry mechanism
+          is the safety net — and because our intake is idempotent (dedup by <Code>transactionId</Code>),
+          those retries are harmless. Simplest correct behavior; it relies on the bank actually retrying.
+        </p>
+        <Sub title="Option B — fail over to a durable backup / queue" />
+        <p>
+          Write the raw event to a backup store or, better, a persistent append-only queue
+          (Kafka / SQS). That durable append <b>is</b> a valid "we've got it," so we can return
+          <Code>200</Code> and let the rest of the pipeline (matching, audit, notify) consume from the
+          queue asynchronously, retrying as components recover. In production this is the standard
+          shape: the webhook's only job is to durably land the event; everything downstream is
+          decoupled behind the queue and can be down without affecting the <Code>200</Code>. The intake
+          becomes "bulletproof" because the only thing between the bank and a <Code>200</Code> is one
+          durable append.
+        </p>
+        <Sub title="Two layers, kept separate" />
+        <ul className="list-disc space-y-1 pl-5">
+          <li><b>Intake durability</b> gates the <Code>200</Code> (Options A / B above).</li>
+          <li><b>Recording side-effects</b> (audit / notify) being down is a different concern, handled by the <b>outbox pattern</b> + idempotent consumers with retries — so a failed audit/notification is retried, never silently dropped.</li>
+        </ul>
+        <p className="text-slate-500">
+          Caveat: the backup/queue must itself be durable and replicated, or you've just relocated the
+          single point of failure.
+        </p>
+      </Section>
+
+      <Section title="Scale — tens to hundreds of thousands of events/day">
+        <ul className="list-disc space-y-1 pl-5">
+          <li>Replace the sync in-process bus with a <b>broker</b> (SQS / Kafka): the webhook persists + enqueues and returns <Code>200</Code> fast; processing happens off the hot path.</li>
+          <li><b>Stateless, horizontally-scaled, idempotent workers.</b></li>
+          <li>DB with <Code>UNIQUE(transaction_id)</Code> + <Code>INDEX(reference)</Code>; <b>partition/shard by reference</b>.</li>
+          <li><b>Dead-letter queue</b> for poison messages; retries with exponential backoff.</li>
+          <li><b>Materialize/cache the per-reference totals</b> instead of recomputing from scratch.</li>
+          <li><b>Observability:</b> metrics, structured logs, tracing; alert on a rising backlog of Short / Overpaid / Unexpected.</li>
+          <li>UI from polling → <b>SSE/WebSocket</b> push.</li>
+        </ul>
+      </Section>
+
       <Section title="Domain modeling — entities & relationships">
         <p><b>Implemented entities:</b></p>
         <ul className="list-disc space-y-1 pl-5">
@@ -126,57 +193,22 @@ outbox(id PK, aggregate, payload, status, attempts, next_attempt_at)`}</Pre>
         <p>Audit and Notifications <i>react</i> to events — they're never called directly by business logic, which keeps the flow easy to follow and each piece independently testable.</p>
       </Section>
 
-      <Section title="Reliability">
+      <Section title="Reliability — duplicates & crashes">
+        <p className="text-slate-500">(Partial failure / a recording component being down is covered in the Scenario 4 section above.)</p>
         <Sub title="The same event arrives twice" />
         <p>Dedup by <Code>transactionId</Code> (a <Code>UNIQUE</Code> constraint in production). The duplicate is recorded for the audit trail but <b>excluded from the totals</b>, so no double-counting and no second notification. This is what makes the webhook safe for the bank to retry.</p>
-        <Sub title="Part of the processing fails (e.g. the audit/notify component is down)" />
-        <p>Use the <b>outbox pattern</b>: in the same database transaction that stores the event, write an outbox row describing the side-effect (notify / external audit). A separate worker delivers it with retries and backoff (at-least-once, with idempotent consumers). The critical fact — "money recorded" — succeeds even if notifications are down; the side-effect is delivered when the component recovers.</p>
         <Sub title="The system crashes mid-processing" />
         <p>Because status is <b>derived from persisted facts</b> (events + requests) rather than a mutable per-event state machine, a restart simply re-derives the correct state — there is no half-updated record to repair. Pending side-effects resume from the outbox, and the bank can safely re-deliver.</p>
       </Section>
 
-      <Section title="Scale — tens to hundreds of thousands of events/day">
-        <ul className="list-disc space-y-1 pl-5">
-          <li>Replace the sync in-process bus with a <b>broker</b> (SQS / Kafka): the webhook persists + enqueues and returns <Code>200</Code> fast; processing happens off the hot path.</li>
-          <li><b>Stateless, horizontally-scaled, idempotent workers.</b></li>
-          <li>DB with <Code>UNIQUE(transaction_id)</Code> + <Code>INDEX(reference)</Code>; <b>partition/shard by reference</b>.</li>
-          <li><b>Dead-letter queue</b> for poison messages; retries with exponential backoff.</li>
-          <li><b>Materialize/cache the per-reference totals</b> instead of recomputing from scratch.</li>
-          <li><b>Observability:</b> metrics, structured logs, tracing; alert on a rising backlog of Short / Overpaid / Unexpected.</li>
-          <li>UI from polling → <b>SSE/WebSocket</b> push.</li>
-        </ul>
-      </Section>
-
-      <Section title="The four scenarios">
+      <Section title="Scenarios 1–3">
         <Sub title="1 · A valid event for an existing deal" />
         <p>The transfer is counted toward its reference. When the total received meets the total requested, the reference becomes <b>Matched</b>, a notification is sent to the lawyer, and every step is audited.</p>
         <Sub title="2 · An event that matches no deal" />
         <p>The reference shows <b>Unexpected funds</b> — the money is held and surfaced (not lost), and it's audited. If the deal is created later, the reference re-derives and matches automatically (order-independent).</p>
         <Sub title="3 · The same event twice" />
         <p>Idempotent dedup by <Code>transactionId</Code>: recorded as a duplicate, excluded from totals, no second notification.</p>
-        <Sub title="4 · The component that records the action is unavailable" />
-        <p>Outbox + retries. The money state is still recorded correctly; the audit/notification is delivered when the component recovers; and because the webhook is idempotent, the bank can re-deliver without harm.</p>
-      </Section>
-
-      <Section title="MVP tradeoffs vs. a production version">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-400">
-              <th className="py-1.5 pr-4 font-medium">MVP (built)</th>
-              <th className="py-1.5 font-medium">Production (next)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <Tradeoff mvp="In-memory store" prod="Real DB with unique/index constraints" />
-            <Tradeoff mvp="Synchronous in-process event bus" prod="Durable broker + workers + DLQ" />
-            <Tradeoff mvp="UI polling (~1s)" prod="SSE / WebSocket push" />
-            <Tradeoff mvp="No auth; open webhook" prod="RBAC + HMAC-signed webhooks" />
-            <Tradeoff mvp="Single currency assumed" prod="Multi-currency / FX handling" />
-            <Tradeoff mvp="Totals recomputed on read" prod="Materialized / cached totals" />
-            <Tradeoff mvp="In-app notification feed" prod="Email / SMS / WhatsApp with delivery guarantees" />
-            <Tradeoff mvp="Short/Overpaid surfaced only" prod="Business rules: hold, alert ops, refund, partial release" />
-          </tbody>
-        </table>
+        <p className="text-slate-500">(Scenario 4 — a recording component is unavailable — is answered at the top.)</p>
       </Section>
     </div>
   );
