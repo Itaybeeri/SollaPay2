@@ -1,15 +1,15 @@
 import React from "react";
-import { Clock, CheckCircle2, AlertTriangle, Copy, type LucideIcon } from "lucide-react";
+import { CheckCircle2, ArrowDownCircle, ArrowUpCircle, HelpCircle, type LucideIcon } from "lucide-react";
 
 // Small, shared presentational building blocks so the panels stay readable.
 
-export type Status = "Pending" | "Matched" | "Unmatched" | "Duplicate";
+export type Status = "Matched" | "Short" | "Overpaid" | "Unexpected";
 
 const statusStyle: Record<Status, { cls: string; Icon: LucideIcon }> = {
-  Pending:   { cls: "bg-slate-100 text-slate-600 ring-slate-200",     Icon: Clock },
-  Matched:   { cls: "bg-emerald-50 text-emerald-700 ring-emerald-200", Icon: CheckCircle2 },
-  Unmatched: { cls: "bg-amber-50 text-amber-700 ring-amber-200",       Icon: AlertTriangle },
-  Duplicate: { cls: "bg-rose-50 text-rose-700 ring-rose-200",          Icon: Copy },
+  Matched:    { cls: "bg-emerald-50 text-emerald-700 ring-emerald-200", Icon: CheckCircle2 },
+  Short:      { cls: "bg-amber-50 text-amber-700 ring-amber-200",       Icon: ArrowDownCircle },
+  Overpaid:   { cls: "bg-violet-50 text-violet-700 ring-violet-200",    Icon: ArrowUpCircle },
+  Unexpected: { cls: "bg-rose-50 text-rose-700 ring-rose-200",          Icon: HelpCircle },
 };
 
 export function StatusBadge({ status, label }: { status: Status; label?: string }) {
