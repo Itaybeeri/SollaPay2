@@ -1,4 +1,4 @@
-import { store, fmt } from "./store.js";
+import { store, fmt, normalizeRef } from "./store.js";
 import { eventBus } from "./eventBus.js";
 import type { ReferenceGroup, ReferenceStatus } from "./types.js";
 
@@ -7,9 +7,10 @@ const sum = (ns: number[]): number => ns.reduce((a, b) => a + b, 0);
 // Build the rolled-up view of a single reference from raw deals + transfers.
 // Status is purely derived from the totals, so order of arrival never matters.
 export function buildReferenceGroup(reference: string): ReferenceGroup {
-  const requests = [...store.paymentRequests.values()].filter((r) => r.reference === reference);
-  const transfers = [...store.bankEventsByTransactionId.values()].filter((t) => t.reference === reference);
-  const duplicateCount = store.duplicateEvents.filter((d) => d.reference === reference).length;
+  const key = normalizeRef(reference); // references match case-insensitively
+  const requests = [...store.paymentRequests.values()].filter((r) => normalizeRef(r.reference) === key);
+  const transfers = [...store.bankEventsByTransactionId.values()].filter((t) => normalizeRef(t.reference) === key);
+  const duplicateCount = store.duplicateEvents.filter((d) => normalizeRef(d.reference) === key).length;
 
   const totalRequested = sum(requests.map((r) => r.expectedAmount));
   const totalTransferred = sum(transfers.map((t) => t.amount));
@@ -23,7 +24,7 @@ export function buildReferenceGroup(reference: string): ReferenceGroup {
   else status = "Overpaid";
 
   return {
-    reference, currency, requests, transfers, duplicateCount,
+    reference: key, currency, requests, transfers, duplicateCount,
     totalRequested, totalTransferred, difference, status,
     summary: describe(transfers.length, requests.length, status, difference, currency),
   };
@@ -45,23 +46,24 @@ function describe(
 // Every reference seen across deals, transfers, and duplicates.
 export function allReferenceGroups(): ReferenceGroup[] {
   const references = new Set<string>();
-  for (const r of store.paymentRequests.values()) references.add(r.reference);
-  for (const t of store.bankEventsByTransactionId.values()) references.add(t.reference);
-  for (const d of store.duplicateEvents) references.add(d.reference);
+  for (const r of store.paymentRequests.values()) references.add(normalizeRef(r.reference));
+  for (const t of store.bankEventsByTransactionId.values()) references.add(normalizeRef(t.reference));
+  for (const d of store.duplicateEvents) references.add(normalizeRef(d.reference));
   return [...references].map(buildReferenceGroup);
 }
 
 // Recompute a reference after a change and fire a single notification the first
 // time it becomes fully funded.
 export function evaluateReference(reference: string): ReferenceGroup {
-  const group = buildReferenceGroup(reference);
-  const wasMatched = store.matchedReferences.has(reference);
+  const key = normalizeRef(reference);
+  const group = buildReferenceGroup(key);
+  const wasMatched = store.matchedReferences.has(key);
 
   if (group.status === "Matched" && !wasMatched) {
-    store.matchedReferences.add(reference);
+    store.matchedReferences.add(key);
     eventBus.emit("reference.matched", group);
   } else if (group.status !== "Matched" && wasMatched) {
-    store.matchedReferences.delete(reference); // left matched (e.g. a new larger deal) — can re-notify later
+    store.matchedReferences.delete(key); // left matched (e.g. a new larger deal) — can re-notify later
   }
   return group;
 }

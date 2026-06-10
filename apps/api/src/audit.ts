@@ -1,9 +1,10 @@
-import { store, newId, now, fmt } from "./store.js";
+import { store, newId, now, fmt, normalizeRef } from "./store.js";
 import { eventBus } from "./eventBus.js";
 import type { BankEvent, PaymentRequest, ReferenceGroup } from "./types.js";
 
 function record(action: string, detail: string, reference: string) {
-  store.auditEntries.push({ id: newId("aud"), at: now(), action, detail, reference });
+  // Store the normalized reference so per-group audit lookups match regardless of casing.
+  store.auditEntries.push({ id: newId("aud"), at: now(), action, detail, reference: normalizeRef(reference) });
 }
 
 // Append-only audit. Subscribes to every meaningful event; never called directly.

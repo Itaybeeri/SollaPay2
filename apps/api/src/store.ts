@@ -19,3 +19,7 @@ export const now = (): string => new Date().toISOString();
 
 const numberFmt = new Intl.NumberFormat("en-US");
 export const fmt = (n: number): string => numberFmt.format(n);
+
+// References are matched case-insensitively (and trimmed). This is the canonical
+// key used for grouping; the raw bank payload keeps its original casing.
+export const normalizeRef = (reference: string): string => reference.trim().toUpperCase();
