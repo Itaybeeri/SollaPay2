@@ -93,8 +93,7 @@ export function QandA() {
           <li><b>Recording side-effects</b> (audit / notify) being down is a different concern, handled by the <b>outbox pattern</b> + idempotent consumers with retries — so a failed audit/notification is retried, never silently dropped.</li>
         </ul>
         <p className="text-slate-500">
-          Caveat: the backup/queue must itself be durable and replicated, or you've just relocated the
-          single point of failure.
+          The backup/queue has to be replicated so it doesn't become a single point of failure.
         </p>
       </Section>
 
