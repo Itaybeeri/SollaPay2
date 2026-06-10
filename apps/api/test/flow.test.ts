@@ -101,6 +101,17 @@ describe("reference aggregation", () => {
     expect(g.status).toBe("Matched");
   });
 
+  it("references match case-insensitively (ABC123 == abc123)", () => {
+    request("ABC123", 70000);
+    ingestBankEvent(transfer({ reference: "abc123" }));
+    const g = buildReferenceGroup("aBc123");
+    expect(g.status).toBe("Matched");
+    expect(g.reference).toBe("ABC123"); // canonical (upper-cased) key
+    expect(g.requests).toHaveLength(1);
+    expect(g.transfers).toHaveLength(1);
+    expect(store.notifications).toHaveLength(1);
+  });
+
   it("a duplicate transactionId is recorded but not counted in totals", () => {
     request("ABC123", 70000);
     ingestBankEvent(transfer());

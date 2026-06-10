@@ -40,6 +40,7 @@ and all of its transfers):
 - **Overpaid** — transferred > requested → *Over by X*.
 - **Unexpected** — transfers arrived but no deal exists for the reference.
 - **Duplicates** (same `transactionId`) are shown in the breakdown but never counted.
+- **References match case-insensitively** (`ABC123` == `abc123`); the raw bank payload keeps its original casing.
 
 Because status is *derived from sums*, order of arrival never matters — a transfer that
 arrives before its deal, split payments, and corrections all just work.
