@@ -25,7 +25,7 @@ function Pre({ children }: { children: string }) {
   return <pre className="overflow-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-100">{children}</pre>;
 }
 
-function Tradeoff({ mvp, prod }: { mvp: string; prod: string }) {
+function Tradeoff({ mvp, prod }: { mvp: React.ReactNode; prod: React.ReactNode }) {
   return (
     <tr className="border-b border-slate-100 align-top">
       <td className="py-1.5 pr-4 text-slate-700">{mvp}</td>
@@ -34,9 +34,21 @@ function Tradeoff({ mvp, prod }: { mvp: string; prod: string }) {
   );
 }
 
+// A term with a dotted underline that reveals a short explanation on hover.
+function Tip({ term, children }: { term: string; children: React.ReactNode }) {
+  return (
+    <span className="group relative cursor-help whitespace-nowrap border-b border-dotted border-slate-400">
+      {term}
+      <span className="invisible absolute left-0 top-full z-20 mt-1 w-60 rounded-md bg-slate-800 p-2 text-xs font-normal leading-snug text-slate-100 opacity-0 shadow-lg transition group-hover:visible group-hover:opacity-100">
+        {children}
+      </span>
+    </span>
+  );
+}
+
 export function QandA() {
   return (
-    <div className="mx-auto max-w-3xl overflow-auto p-6">
+    <div className="mx-auto max-w-3xl p-6">
       <p className="mb-6 rounded-lg bg-indigo-50 p-3 text-sm text-indigo-900 ring-1 ring-indigo-100">
         The <b>Console</b> tab is the implemented central flow (bank event → store → associate to a
         deal → update state → audit → notify). This tab answers the Part-1 design questions and the
@@ -55,7 +67,15 @@ export function QandA() {
             <Tradeoff mvp="In-memory store" prod="Real DB with unique/index constraints" />
             <Tradeoff mvp="Synchronous in-process event bus" prod="Durable broker + workers + DLQ" />
             <Tradeoff mvp="UI polling (~1s)" prod="SSE / WebSocket push" />
-            <Tradeoff mvp="No auth; open webhook" prod="RBAC + HMAC-signed webhooks" />
+            <Tradeoff
+              mvp="No auth; open webhook"
+              prod={<>
+                <Tip term="RBAC">Role-Based Access Control: permissions granted by role (lawyer / ops / buyer), so each user can only see and do what their role allows.</Tip>
+                {" + "}
+                <Tip term="HMAC">Hash-based Message Authentication Code: the bank signs each webhook with a shared secret and we re-check the signature — proving the event really came from the bank and wasn't tampered with.</Tip>
+                {"-signed webhooks"}
+              </>}
+            />
             <Tradeoff mvp="Single currency assumed" prod="Multi-currency / FX handling" />
             <Tradeoff mvp="In-app notification feed" prod="Email / SMS / WhatsApp with delivery guarantees" />
             <Tradeoff mvp="Short/Overpaid surfaced only" prod="Business rules: hold, alert ops, refund, partial release" />
