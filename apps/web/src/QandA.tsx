@@ -34,15 +34,11 @@ function Tradeoff({ mvp, prod }: { mvp: React.ReactNode; prod: React.ReactNode }
   );
 }
 
-// A term with a dotted underline that reveals a short explanation on hover.
-function Tip({ term, children }: { term: string; children: React.ReactNode }) {
+// A term with a dotted underline; hovering shows a short explanation. Uses the
+// native title tooltip so it can never be clipped by a scroll container.
+function Tip({ term, children }: { term: string; children: string }) {
   return (
-    <span className="group relative cursor-help whitespace-nowrap border-b border-dotted border-slate-400">
-      {term}
-      <span className="invisible absolute left-0 top-full z-20 mt-1 w-60 rounded-md bg-slate-800 p-2 text-xs font-normal leading-snug text-slate-100 opacity-0 shadow-lg transition group-hover:visible group-hover:opacity-100">
-        {children}
-      </span>
-    </span>
+    <span title={children} className="cursor-help border-b border-dotted border-slate-400">{term}</span>
   );
 }
 
