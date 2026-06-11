@@ -74,7 +74,7 @@ Bank ──POST /api/bank/webhook──► Ingest ──(dedup by transactionId)
 Tests: `apps/api/test/flow.test.ts` covers matched, short, overpaid, unexpected,
 split-funding, multi-deal, duplicate, and case-insensitive references.
 
-## Design notes (discussion, not built — full answers in the Q&A tab)
+## Design notes (discussion, not built — full answers in the Q&A tab / [DESIGN-QA.md](DESIGN-QA.md))
 
 - **Scenario 4 (a recording component is down):** the webhook is safely retryable
   because it's idempotent; durable side-effects via the **outbox pattern** (persist the
